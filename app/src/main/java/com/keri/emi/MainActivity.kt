@@ -43,9 +43,12 @@ private val Amber = Color(0xFFF2A20A)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = android.graphics.Color.rgb(16, 43, 92)
+        // Keep system status icons readable and reserve the status-bar inset.
+        window.statusBarColor = android.graphics.Color.rgb(245, 247, 251)
         window.navigationBarColor = android.graphics.Color.WHITE
-        window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        window.decorView.systemUiVisibility =
+            android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+            android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         setContent { KeRiApp() }
     }
 }
@@ -114,7 +117,7 @@ fun KeRiApp() {
     val summary = remember(loan, rate, tenure, fees) { calculateLoan(loan, rate, tenure, fees) }
 
     Column(
-        Modifier.fillMaxSize().background(Soft).verticalScroll(rememberScrollState()),
+        Modifier.fillMaxSize().background(Soft).statusBarsPadding().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Column(Modifier.fillMaxWidth().background(Color.White).padding(18.dp)) {
