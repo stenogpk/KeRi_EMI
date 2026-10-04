@@ -153,8 +153,33 @@ fun KeRiApp() {
                 onValueChange = { rateText = String.format(Locale.US, "%.2f", it) }, valueRange = 0f..24f)
             Spacer(Modifier.height(8.dp))
             Text("DURATION  ·  " + tenure + " MONTHS", color = Muted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Slider(value = tenure.toFloat(), onValueChange = { tenure = it.toInt() },
-                valueRange = 3f..360f, steps = 118)
+            Slider(value = tenure.toFloat(), onValueChange = { tenure = it.toInt().coerceIn(1, 360) },
+                valueRange = 1f..360f, steps = 358)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Custom duration", modifier = Modifier.weight(1f), color = Muted,
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                OutlinedTextField(
+                    value = tenure.toString(),
+                    onValueChange = { entered ->
+                        if (entered.length <= 3 && (entered.isEmpty() || entered.all(Char::isDigit))) {
+                            entered.toIntOrNull()?.let { if (it in 1..360) tenure = it }
+                        }
+                    },
+                    modifier = Modifier.width(148.dp),
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End
+                    ),
+                    suffix = { Text("Mo", color = Muted, fontWeight = FontWeight.Bold) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Blue, unfocusedBorderColor = Color(0xFFDCE3ED),
+                        focusedContainerColor = Soft, unfocusedContainerColor = Soft
+                    )
+                )
+            }
+            Text("Enter any value from 1 to 360 months.", color = Muted, fontSize = 10.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 listOf(12, 24, 36, 60, 120).forEach { m ->
                     val selected = tenure == m
