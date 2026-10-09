@@ -253,6 +253,47 @@ fun KeRiApp() {
             SummaryLine("Total EMI payments", rupees(summary.totalEmi))
             SummaryLine("Upfront charges", rupees(fees))
             SummaryLine("Total outflow", rupees(summary.totalCost), true)
+            Button(onClick = {
+                if (borrowerName.isBlank()) actionMessage = "Enter borrower name before saving."
+                else {
+                    val record = JSONObject().apply {
+                        put("id", System.currentTimeMillis().toString())
+                        put("name", borrowerName.trim()); put("phone", borrowerPhone.trim())
+                        put("loan", loan); put("rate", rate); put("months", tenure)
+                        put("processing", amount(processingText, 0.0)); put("insurance", amount(insuranceText, 0.0))
+                        put("documentation", amount(docsText, 0.0)); put("fees", fees)
+                        put("emi", summary.emi); put("interest", summary.interest)
+                        put("disbursal", summary.disbursal); put("totalEmi", summary.totalEmi)
+                        put("totalCost", summary.totalCost)
+                        put("date", SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
+                    }
+                    val list = JSONArray()
+                    for (i in 0 until savedLoans.length()) list.put(savedLoans.getJSONObject(i))
+                    list.put(record)
+                    saveLoans(this@MainActivity, list); savedLoans = list
+                    actionMessage = "Loan saved for " + borrowerName.trim()
+                }
+            }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Save Loan") }
+            OutlinedButton(onClick = { showBorrowers = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Borrower List (" + savedLoans.length() + ")")
+            }
+            Button(onClick = {
+                if (borrowerName.isBlank()) actionMessage = "Enter borrower name to create the PDF."
+                else {
+                    val data = JSONObject().apply {
+                        put("name", borrowerName.trim()); put("phone", borrowerPhone.trim())
+                        put("loan", loan); put("rate", rate); put("months", tenure)
+                        put("processing", amount(processingText, 0.0)); put("insurance", amount(insuranceText, 0.0))
+                        put("documentation", amount(docsText, 0.0)); put("fees", fees)
+                        put("emi", summary.emi); put("interest", summary.interest)
+                        put("disbursal", summary.disbursal); put("totalEmi", summary.totalEmi)
+                        put("totalCost", summary.totalCost); put("date", SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
+                    }
+                    shareLoanPdf(this@MainActivity, data, summary)
+                    actionMessage = "PDF share options opened."
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("Share Complete Loan PDF") }
+            if (actionMessage.isNotBlank()) Text(actionMessage, color = Blue, fontSize = 12.sp)
             TextButton(onClick = {
                 loanText = "500000"; rateText = "9.5"; tenure = 60
                 processingText = "2500"; insuranceText = "4500"; docsText = "1000"
@@ -287,6 +328,39 @@ fun KeRiApp() {
             Text("Developed by Shartendu", color = Muted, fontSize = 11.sp)
             Text("Your numbers. Clear decisions.", color = Muted, fontSize = 10.sp)
         }
+    }
+    if (showBorrowers) {
+        AlertDialog(
+            onDismissRequest = { showBorrowers = false },
+            title = { Text("Borrower List") },
+            text = {
+                Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
+                    if (savedLoans.length() == 0) Text("No saved loans yet.")
+                    for (i in 0 until savedLoans.length()) {
+                        val item = savedLoans.getJSONObject(i)
+                        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                            Text(item.optString("name"), color = Ink, fontWeight = FontWeight.Bold)
+                            Text("Loan: " + rupees(item.optDouble("loan")), color = Muted, fontSize = 12.sp)
+                            Text("EMI: " + rupees(item.optDouble("emi")) + " · " + item.optInt("months") + " months", color = Muted, fontSize = 12.sp)
+                            if (item.optString("phone").isNotBlank()) Text(item.optString("phone"), color = Muted, fontSize = 12.sp)
+                            Row {
+                                TextButton(onClick = {
+                                    val sum = calculateLoan(item.optDouble("loan"), item.optDouble("rate"), item.optInt("months", 1), item.optDouble("fees"))
+                                    shareLoanPdf(this@MainActivity, item, sum)
+                                }) { Text("Share PDF") }
+                                TextButton(onClick = {
+                                    val list = JSONArray()
+                                    for (j in 0 until savedLoans.length()) if (j != i) list.put(savedLoans.getJSONObject(j))
+                                    saveLoans(this@MainActivity, list); savedLoans = list
+                                }) { Text("Delete") }
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showBorrowers = false }) { Text("Close") } }
+        )
     }
 }
 
