@@ -288,7 +288,7 @@ fun KeRiApp() {
                 if (borrowerName.isBlank()) actionMessage = "Enter borrower name before saving."
                 else {
                     val record = JSONObject().apply {
-                        put("id", System.currentTimeMillis().toString())
+                        put("id", if (editIndex >= 0) savedLoans.getJSONObject(editIndex).optString("id") else System.currentTimeMillis().toString())
                         put("name", borrowerName.trim()); put("phone", borrowerPhone.trim())
                         put("loan", loan); put("rate", rate); put("months", tenure)
                         put("processing", amount(processingText, 0.0)); put("insurance", amount(insuranceText, 0.0))
@@ -299,10 +299,13 @@ fun KeRiApp() {
                         put("date", SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
                     }
                     val list = JSONArray()
-                    for (i in 0 until savedLoans.length()) list.put(savedLoans.getJSONObject(i))
-                    list.put(record)
+                    for (i in 0 until savedLoans.length()) {
+                        if (editIndex == i) list.put(record) else list.put(savedLoans.getJSONObject(i))
+                    }
+                    if (editIndex < 0) list.put(record)
                     saveLoans(context, list); savedLoans = list
-                    actionMessage = "Loan saved for " + borrowerName.trim()
+                    actionMessage = if (editIndex >= 0) "Loan updated for " + borrowerName.trim() else "Loan saved for " + borrowerName.trim()
+                    editIndex = -1
                 }
             }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Save Loan") }
             OutlinedButton(onClick = { showBorrowers = true }, modifier = Modifier.fillMaxWidth()) {
@@ -413,6 +416,18 @@ fun KeRiApp() {
                             Text("EMI: " + rupees(item.optDouble("emi")) + " · " + item.optInt("months") + " months", color = Muted, fontSize = 12.sp)
                             if (item.optString("phone").isNotBlank()) Text(item.optString("phone"), color = Muted, fontSize = 12.sp)
                             Row {
+                                TextButton(onClick = {
+                                    editIndex = i
+                                    borrowerName = item.optString("name"); borrowerPhone = item.optString("phone")
+                                    loanText = item.optDouble("loan").toLong().toString()
+                                    rateText = item.optDouble("rate").toString()
+                                    tenure = item.optInt("months", 60).coerceIn(1, 360)
+                                    processingText = item.optDouble("processing").toString()
+                                    insuranceText = item.optDouble("insurance").toString()
+                                    docsText = item.optDouble("documentation").toString()
+                                    showBorrowers = false
+                                    actionMessage = "Editing " + borrowerName + " — update details, then tap Save Loan."
+                                }) { Text("Edit") }
                                 TextButton(onClick = {
                                     val sum = calculateLoan(item.optDouble("loan"), item.optDouble("rate"), item.optInt("months", 1), item.optDouble("fees"))
                                     shareLoanPdf(context, item, sum)
