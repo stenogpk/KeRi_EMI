@@ -484,6 +484,32 @@ private fun shareLoanPdf(context: Context, data: JSONObject, summary: LoanSummar
     line("Estimated in-hand disbursal", rupees(data.optDouble("disbursal")))
     line("Total EMI payments", rupees(data.optDouble("totalEmi", summary.totalEmi)))
     line("Total loan cost incl. fees", rupees(data.optDouble("totalCost")))
+    heading("Loan Cost Breakdown")
+    val pValue = data.optDouble("loan").coerceAtLeast(0.0)
+    val iValue = data.optDouble("interest").coerceAtLeast(0.0)
+    val fValue = data.optDouble("fees").coerceAtLeast(0.0)
+    val grand = (pValue + iValue + fValue).coerceAtLeast(1.0)
+    val cx = 105f
+    val cy = y + 55f
+    val radius = 43f
+    val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 17f }
+    var startAngle = -90f
+    listOf(pValue to android.graphics.Color.rgb(40, 100, 232),
+        iValue to android.graphics.Color.rgb(242, 162, 10),
+        fValue to android.graphics.Color.rgb(16, 169, 130)).forEach { (value, color) ->
+        stroke.color = color
+        val sweep = (value / grand * 360.0).toFloat()
+        canvas.drawArc(cx - radius, cy - radius, cx + radius, cy + radius, startAngle, sweep, false, stroke)
+        startAngle += sweep
+    }
+    paint.textSize = 10f
+    paint.color = android.graphics.Color.rgb(40, 100, 232)
+    canvas.drawText("Principal: " + rupees(pValue), 180f, cy - 17f, paint)
+    paint.color = android.graphics.Color.rgb(190, 120, 0)
+    canvas.drawText("Interest: " + rupees(iValue), 180f, cy + 3f, paint)
+    paint.color = android.graphics.Color.rgb(16, 140, 105)
+    canvas.drawText("Extra charges: " + rupees(fValue), 180f, cy + 23f, paint)
+    y += 125f
     heading("Yearly Payment Schedule")
     paint.textSize = 9f
     canvas.drawText("Year", 42f, y, paint)
