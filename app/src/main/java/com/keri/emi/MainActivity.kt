@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -115,6 +116,7 @@ fun calculateLoan(principal: Double, annualRate: Double, months: Int, charges: D
 
 @Composable
 fun KeRiApp() {
+    val context = LocalContext.current
     var loanText by remember { mutableStateOf("500000") }
     var rateText by remember { mutableStateOf("9.5") }
     var tenure by remember { mutableIntStateOf(60) }
@@ -124,7 +126,7 @@ fun KeRiApp() {
     var showSchedule by remember { mutableStateOf(true) }
     var borrowerName by remember { mutableStateOf("") }
     var borrowerPhone by remember { mutableStateOf("") }
-    var savedLoans by remember { mutableStateOf(loadLoans(this@MainActivity)) }
+    var savedLoans by remember { mutableStateOf(loadLoans(context)) }
     var showBorrowers by remember { mutableStateOf(false) }
     var actionMessage by remember { mutableStateOf("") }
 
@@ -270,7 +272,7 @@ fun KeRiApp() {
                     val list = JSONArray()
                     for (i in 0 until savedLoans.length()) list.put(savedLoans.getJSONObject(i))
                     list.put(record)
-                    saveLoans(this@MainActivity, list); savedLoans = list
+                    saveLoans(context, list); savedLoans = list
                     actionMessage = "Loan saved for " + borrowerName.trim()
                 }
             }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Save Loan") }
@@ -289,7 +291,7 @@ fun KeRiApp() {
                         put("disbursal", summary.disbursal); put("totalEmi", summary.totalEmi)
                         put("totalCost", summary.totalCost); put("date", SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
                     }
-                    shareLoanPdf(this@MainActivity, data, summary)
+                    shareLoanPdf(context, data, summary)
                     actionMessage = "PDF share options opened."
                 }
             }, modifier = Modifier.fillMaxWidth()) { Text("Share Complete Loan PDF") }
@@ -346,12 +348,12 @@ fun KeRiApp() {
                             Row {
                                 TextButton(onClick = {
                                     val sum = calculateLoan(item.optDouble("loan"), item.optDouble("rate"), item.optInt("months", 1), item.optDouble("fees"))
-                                    shareLoanPdf(this@MainActivity, item, sum)
+                                    shareLoanPdf(context, item, sum)
                                 }) { Text("Share PDF") }
                                 TextButton(onClick = {
                                     val list = JSONArray()
                                     for (j in 0 until savedLoans.length()) if (j != i) list.put(savedLoans.getJSONObject(j))
-                                    saveLoans(this@MainActivity, list); savedLoans = list
+                                    saveLoans(context, list); savedLoans = list
                                 }) { Text("Delete") }
                             }
                             HorizontalDivider()
