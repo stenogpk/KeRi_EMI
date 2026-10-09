@@ -413,8 +413,59 @@ fun KeRiApp() {
                         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                             Text(item.optString("name"), color = Ink, fontWeight = FontWeight.Bold)
                             Text("Loan: " + rupees(item.optDouble("loan")), color = Muted, fontSize = 12.sp)
-                            Text("EMI: " + rupees(item.optDouble("emi")) + " · " + item.optInt("months") + " months", color = Muted, fontSize = 12.sp)
+                            val paidTotal = totalPaid(item)
+                            val dueTotal = item.optDouble("totalEmi", item.optDouble("emi") * item.optInt("months", 1))
+                            val remaining = (dueTotal - paidTotal).coerceAtLeast(0.0)
+                            var paymentDate by remember(item.optString("id")) {
+                                mutableStateOf(SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
+                            }
+                            var paymentAmount by remember(item.optString("id")) {
+                                mutableStateOf(if (item.optDouble("emi") > 0) item.optDouble("emi").toString().trimEnd('0').trimEnd('.') else "0")
+                            }
+                            Text("Scheduled EMI: " + rupees(item.optDouble("emi")) + " · " + item.optInt("months") + " months", color = Muted, fontSize = 12.sp)
+                            Text("Total received: " + rupees(paidTotal), color = Green, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Remaining: " + rupees(remaining) + if (remaining <= 0.0) " · LOAN COMPLETE" else " · ACTIVE", color = if (remaining <= 0.0) Green else Blue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             if (item.optString("phone").isNotBlank()) Text(item.optString("phone"), color = Muted, fontSize = 12.sp)
+                            if (remaining > 0.0) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("Record EMI / payment received", color = Ink, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                OutlinedTextField(value = paymentDate, onValueChange = { paymentDate = it.take(24) },
+                                    modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Payment date (e.g. 09 Oct 2026)") })
+                                Spacer(Modifier.height(6.dp))
+                                OutlinedTextField(value = paymentAmount, onValueChange = { v ->
+                                    if (v.length <= 14 && (v.isEmpty() || v.all { it.isDigit() || it == '.' })) paymentAmount = v
+                                }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Amount received (₹)") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    supportingText = { Text("Defaults to scheduled EMI; edit for partial or extra payment. No extra charge is added.") })
+                                Button(onClick = {
+                                    val received = paymentAmount.toDoubleOrNull()
+                                    if (paymentDate.isBlank()) actionMessage = "Enter the payment date."
+                                    else if (received == null || received <= 0.0) actionMessage = "Enter a valid payment amount."
+                                    else {
+                                        val updated = JSONObject(item.toString())
+                                        val history = updated.optJSONArray("payments") ?: JSONArray()
+                                        history.put(JSONObject().apply {
+                                            put("date", paymentDate.trim())
+                                            put("amount", received)
+                                        })
+                                        updated.put("payments", history)
+                                        val next = JSONArray()
+                                        for (j in 0 until savedLoans.length()) next.put(if (j == i) updated else savedLoans.getJSONObject(j))
+                                        saveLoans(context, next)
+                                        savedLoans = next
+                                        actionMessage = if ((dueTotal - totalPaid(updated)) <= 0.0) "Loan completed. Remaining balance is ₹0." else "Payment recorded for " + item.optString("name")
+                                        paymentAmount = item.optDouble("emi").toString().trimEnd('0').trimEnd('.')
+                                    }
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Save Payment") }
+                            }
+                            val history = item.optJSONArray("payments") ?: JSONArray()
+                            if (history.length() > 0) {
+                                Text("Payment history", color = Ink, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                for (p in 0 until history.length()) {
+                                    val entry = history.getJSONObject(p)
+                                    Text(entry.optString("date") + "  •  " + rupees(entry.optDouble("amount")), color = Muted, fontSize = 11.sp)
+                                }
+                            }
                             Row {
                                 TextButton(onClick = {
                                     editIndex = i
@@ -450,6 +501,13 @@ private fun loadLoans(context: Context): JSONArray =
 
 private fun saveLoans(context: Context, loans: JSONArray) {
     context.getSharedPreferences("keri_loans", Context.MODE_PRIVATE).edit().putString("records", loans.toString()).apply()
+}
+
+private fun totalPaid(item: JSONObject): Double {
+    val payments = item.optJSONArray("payments") ?: JSONArray()
+    var total = 0.0
+    for (i in 0 until payments.length()) total += payments.optJSONObject(i)?.optDouble("amount", 0.0) ?: 0.0
+    return total
 }
 
 private fun shareLoanPdf(context: Context, data: JSONObject, summary: LoanSummary) {
@@ -499,6 +557,21 @@ private fun shareLoanPdf(context: Context, data: JSONObject, summary: LoanSummar
     line("Estimated in-hand disbursal", rupees(data.optDouble("disbursal")))
     line("Total EMI payments", rupees(data.optDouble("totalEmi", summary.totalEmi)))
     line("Total loan cost incl. fees", rupees(data.optDouble("totalCost")))
+    val receivedTotal = totalPaid(data)
+    val scheduledTotal = data.optDouble("totalEmi", data.optDouble("emi") * data.optInt("months", 1))
+    line("Total payments received", rupees(receivedTotal))
+    line("Remaining amount", rupees((scheduledTotal - receivedTotal).coerceAtLeast(0.0)))
+    line("Loan status", if (scheduledTotal - receivedTotal <= 0.0) "COMPLETE - NIL BALANCE" else "ACTIVE")
+    val paymentHistory = data.optJSONArray("payments") ?: JSONArray()
+    if (paymentHistory.length() > 0) {
+        heading("Payment History")
+        for (i in 0 until paymentHistory.length()) {
+            if (y < 730f) {
+                val entry = paymentHistory.getJSONObject(i)
+                line(entry.optString("date"), rupees(entry.optDouble("amount")))
+            }
+        }
+    }
     heading("Loan Cost Breakdown")
     val pValue = data.optDouble("loan").coerceAtLeast(0.0)
     val iValue = data.optDouble("interest").coerceAtLeast(0.0)
