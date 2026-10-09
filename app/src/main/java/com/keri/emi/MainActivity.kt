@@ -129,12 +129,38 @@ fun KeRiApp() {
     var savedLoans by remember { mutableStateOf(loadLoans(context)) }
     var showBorrowers by remember { mutableStateOf(false) }
     var actionMessage by remember { mutableStateOf("") }
+    var pendingDelete by remember { mutableStateOf(-1) }
+    var editIndex by remember { mutableIntStateOf(-1) }
+    var showPinSettings by remember { mutableStateOf(false) }
+    var pinEntry by remember { mutableStateOf("") }
+    var pinConfirm by remember { mutableStateOf("") }
+    var unlockEntry by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf("") }
+    var isUnlocked by remember { mutableStateOf(context.getSharedPreferences("keri_security", Context.MODE_PRIVATE).getString("pin", null) == null) }
+    val storedPin = context.getSharedPreferences("keri_security", Context.MODE_PRIVATE).getString("pin", null)
 
     val loan = amount(loanText, 500000.0).coerceIn(10000.0, 100000000.0)
     val rate = amount(rateText, 9.5).coerceIn(0.0, 36.0)
     val fees = amount(processingText, 0.0) + amount(insuranceText, 0.0) + amount(docsText, 0.0)
     val summary = remember(loan, rate, tenure, fees) { calculateLoan(loan, rate, tenure, fees) }
 
+    if (!isUnlocked) {
+        Column(Modifier.fillMaxSize().background(Soft).statusBarsPadding().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text("KeRi EMI Calculator", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Navy)
+            Spacer(Modifier.height(18.dp))
+            Text("Enter your 4-digit app PIN", color = Muted)
+            OutlinedTextField(value = unlockEntry, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) unlockEntry = it },
+                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                label = { Text("4-digit PIN") })
+            if (pinError.isNotBlank()) Text(pinError, color = Color.Red)
+            Button(onClick = {
+                if (unlockEntry == storedPin) { isUnlocked = true; unlockEntry = ""; pinError = "" }
+                else pinError = "Incorrect PIN"
+            }) { Text("Unlock") }
+        }
+        return
+    }
     Column(
         Modifier.fillMaxSize().background(Soft).statusBarsPadding().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -149,6 +175,9 @@ fun KeRiApp() {
                     Text("KeRi EMI Calculator", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
                     Text("Complete Loan & Extra Charges Estimator", color = Muted, fontSize = 11.sp)
                 }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { showPinSettings = true }) { Text("App Lock / PIN") }
             }
             Spacer(Modifier.height(18.dp))
             Column(
@@ -331,6 +360,44 @@ fun KeRiApp() {
             Text("Your numbers. Clear decisions.", color = Muted, fontSize = 10.sp)
         }
     }
+    if (showPinSettings) {
+        AlertDialog(onDismissRequest = { showPinSettings = false; pinEntry = ""; pinConfirm = "" },
+            title = { Text(if (storedPin == null) "Set 4-digit App PIN" else "Change App PIN") },
+            text = {
+                Column {
+                    OutlinedTextField(value = pinEntry, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) pinEntry = it },
+                        label = { Text("New 4-digit PIN") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
+                    OutlinedTextField(value = pinConfirm, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) pinConfirm = it },
+                        label = { Text("Confirm PIN") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
+                    if (pinError.isNotBlank()) Text(pinError, color = Color.Red)
+                }
+            },
+            confirmButton = { TextButton(onClick = {
+                if (pinEntry.length != 4) pinError = "PIN must be exactly 4 digits."
+                else if (pinEntry != pinConfirm) pinError = "PINs do not match."
+                else {
+                    context.getSharedPreferences("keri_security", Context.MODE_PRIVATE).edit().putString("pin", pinEntry).apply()
+                    pinError = ""; pinEntry = ""; pinConfirm = ""; showPinSettings = false
+                    actionMessage = "App PIN saved."
+                }
+            }) { Text("Save PIN") } },
+            dismissButton = { TextButton(onClick = { showPinSettings = false; pinEntry = ""; pinConfirm = ""; pinError = "" }) { Text("Cancel") } }
+        )
+    }
+    if (pendingDelete >= 0) {
+        AlertDialog(onDismissRequest = { pendingDelete = -1 },
+            title = { Text("Delete saved loan?") },
+            text = { Text("This will permanently remove this borrower loan record from this device.") },
+            confirmButton = { TextButton(onClick = {
+                val list = JSONArray()
+                for (j in 0 until savedLoans.length()) if (j != pendingDelete) list.put(savedLoans.getJSONObject(j))
+                saveLoans(context, list); savedLoans = list; pendingDelete = -1
+            }) { Text("Delete", color = Color.Red) } },
+            dismissButton = { TextButton(onClick = { pendingDelete = -1 }) { Text("Cancel") } }
+        )
+    }
     if (showBorrowers) {
         AlertDialog(
             onDismissRequest = { showBorrowers = false },
@@ -350,11 +417,7 @@ fun KeRiApp() {
                                     val sum = calculateLoan(item.optDouble("loan"), item.optDouble("rate"), item.optInt("months", 1), item.optDouble("fees"))
                                     shareLoanPdf(context, item, sum)
                                 }) { Text("Share PDF") }
-                                TextButton(onClick = {
-                                    val list = JSONArray()
-                                    for (j in 0 until savedLoans.length()) if (j != i) list.put(savedLoans.getJSONObject(j))
-                                    saveLoans(context, list); savedLoans = list
-                                }) { Text("Delete") }
+                                TextButton(onClick = { pendingDelete = i }) { Text("Delete") }
                             }
                             HorizontalDivider()
                         }
