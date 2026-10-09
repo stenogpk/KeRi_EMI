@@ -132,6 +132,10 @@ fun KeRiApp() {
     var actionMessage by remember { mutableStateOf("") }
     var pendingDelete by remember { mutableStateOf(-1) }
     var editIndex by remember { mutableIntStateOf(-1) }
+    var showPaymentDialog by remember { mutableStateOf(false) }
+    var paymentDialogLoanId by remember { mutableStateOf("") }
+    var paymentDialogDate by remember { mutableStateOf(SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date())) }
+    var paymentDialogAmount by remember { mutableStateOf("") }
     var showPinSettings by remember { mutableStateOf(false) }
     var pinEntry by remember { mutableStateOf("") }
     var pinConfirm by remember { mutableStateOf("") }
@@ -292,18 +296,19 @@ fun KeRiApp() {
             Button(onClick = {
                 if (borrowerName.isBlank()) actionMessage = "Enter borrower name before saving."
                 else {
-                    val record = JSONObject().apply {
-                        put("id", if (editIndex >= 0) savedLoans.getJSONObject(editIndex).optString("id") else System.currentTimeMillis().toString())
-                        put("name", borrowerName.trim()); put("phone", borrowerPhone.trim())
-                        put("loan", loan); put("rate", rate); put("months", tenure)
-                        put("processing", amount(processingText, 0.0)); put("insurance", amount(insuranceText, 0.0))
-                        put("documentation", amount(docsText, 0.0)); put("fees", fees)
-                        put("emi", summary.emi); put("interest", summary.interest)
-                        put("disbursal", summary.disbursal); put("totalEmi", summary.totalEmi)
-                        put("totalCost", summary.totalCost)
-                        put("date", SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
-                        put("disbursalDate", disbursalDate.trim())
-                    }
+                    // Editing starts from the existing record so payment history and
+                    // original saved metadata remain untouched unless explicitly changed.
+                    val record = if (editIndex >= 0) JSONObject(savedLoans.getJSONObject(editIndex).toString()) else JSONObject()
+                    record.put("id", if (editIndex >= 0) savedLoans.getJSONObject(editIndex).optString("id") else System.currentTimeMillis().toString())
+                    record.put("name", borrowerName.trim()); record.put("phone", borrowerPhone.trim())
+                    record.put("loan", loan); record.put("rate", rate); record.put("months", tenure)
+                    record.put("processing", amount(processingText, 0.0)); record.put("insurance", amount(insuranceText, 0.0))
+                    record.put("documentation", amount(docsText, 0.0)); record.put("fees", fees)
+                    record.put("emi", summary.emi); record.put("interest", summary.interest)
+                    record.put("disbursal", summary.disbursal); record.put("totalEmi", summary.totalEmi)
+                    record.put("totalCost", summary.totalCost)
+                    if (editIndex < 0) record.put("date", SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
+                    record.put("disbursalDate", disbursalDate.trim())
                     val list = JSONArray()
                     for (i in 0 until savedLoans.length()) {
                         if (editIndex == i) list.put(record) else list.put(savedLoans.getJSONObject(i))
@@ -408,6 +413,45 @@ fun KeRiApp() {
             dismissButton = { TextButton(onClick = { pendingDelete = -1 }) { Text("Cancel") } }
         )
     }
+    if (showPaymentDialog) {
+        AlertDialog(
+            onDismissRequest = { showPaymentDialog = false },
+            title = { Text("Record EMI / Payment") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(value = paymentDialogDate, onValueChange = { paymentDialogDate = it.take(24) },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Payment date") })
+                    OutlinedTextField(value = paymentDialogAmount, onValueChange = { v ->
+                        if (v.length <= 14 && (v.isEmpty() || v.all { it.isDigit() || it == '.' })) paymentDialogAmount = v
+                    }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Amount received (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        supportingText = { Text("Editable. Partial or extra payment is allowed; no extra charge is added.") })
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val index = (0 until savedLoans.length()).firstOrNull { savedLoans.getJSONObject(it).optString("id") == paymentDialogLoanId } ?: -1
+                    val received = paymentDialogAmount.toDoubleOrNull()
+                    if (index < 0) actionMessage = "Borrower record not found."
+                    else if (paymentDialogDate.isBlank()) actionMessage = "Enter the payment date."
+                    else if (received == null || received <= 0.0) actionMessage = "Enter a valid payment amount."
+                    else {
+                        val updated = JSONObject(savedLoans.getJSONObject(index).toString())
+                        val history = updated.optJSONArray("payments") ?: JSONArray()
+                        history.put(JSONObject().apply { put("date", paymentDialogDate.trim()); put("amount", received) })
+                        updated.put("payments", history)
+                        val next = JSONArray()
+                        for (j in 0 until savedLoans.length()) next.put(if (j == index) updated else savedLoans.getJSONObject(j))
+                        saveLoans(context, next); savedLoans = next
+                        val due = updated.optDouble("totalEmi", updated.optDouble("emi") * updated.optInt("months", 1))
+                        actionMessage = if (due - totalPaid(updated) <= 0.0) "Loan completed. Remaining balance is ₹0." else "Payment recorded."
+                        showPaymentDialog = false
+                    }
+                }) { Text("Save Payment") }
+            },
+            dismissButton = { TextButton(onClick = { showPaymentDialog = false }) { Text("Cancel") } }
+        )
+    }
     if (showBorrowers) {
         AlertDialog(
             onDismissRequest = { showBorrowers = false },
@@ -438,35 +482,13 @@ fun KeRiApp() {
                             if (item.optString("phone").isNotBlank()) Text(item.optString("phone"), color = Muted, fontSize = 12.sp)
                             if (remaining > 0.0) {
                                 Spacer(Modifier.height(8.dp))
-                                Text("Record EMI / payment received", color = Ink, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                OutlinedTextField(value = paymentDate, onValueChange = { paymentDate = it.take(24) },
-                                    modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Payment date (e.g. 09 Oct 2026)") })
-                                Spacer(Modifier.height(6.dp))
-                                OutlinedTextField(value = paymentAmount, onValueChange = { v ->
-                                    if (v.length <= 14 && (v.isEmpty() || v.all { it.isDigit() || it == '.' })) paymentAmount = v
-                                }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Amount received (₹)") },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    supportingText = { Text("Defaults to scheduled EMI; edit for partial or extra payment. No extra charge is added.") })
-                                Button(onClick = {
-                                    val received = paymentAmount.toDoubleOrNull()
-                                    if (paymentDate.isBlank()) actionMessage = "Enter the payment date."
-                                    else if (received == null || received <= 0.0) actionMessage = "Enter a valid payment amount."
-                                    else {
-                                        val updated = JSONObject(item.toString())
-                                        val history = updated.optJSONArray("payments") ?: JSONArray()
-                                        history.put(JSONObject().apply {
-                                            put("date", paymentDate.trim())
-                                            put("amount", received)
-                                        })
-                                        updated.put("payments", history)
-                                        val next = JSONArray()
-                                        for (j in 0 until savedLoans.length()) next.put(if (j == i) updated else savedLoans.getJSONObject(j))
-                                        saveLoans(context, next)
-                                        savedLoans = next
-                                        actionMessage = if ((dueTotal - totalPaid(updated)) <= 0.0) "Loan completed. Remaining balance is ₹0." else "Payment recorded for " + item.optString("name")
-                                        paymentAmount = kotlin.math.round(item.optDouble("emi")).toLong().toString()
-                                    }
-                                }, modifier = Modifier.fillMaxWidth()) { Text("Save Payment") }
+                                Text("Payment entry is managed separately from borrower details.", color = Muted, fontSize = 11.sp)
+                                OutlinedButton(onClick = {
+                                    paymentDialogLoanId = item.optString("id")
+                                    paymentDialogDate = SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date())
+                                    paymentDialogAmount = kotlin.math.round(item.optDouble("emi")).toLong().toString()
+                                    showPaymentDialog = true
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Record EMI / Payment") }
                             }
                             val history = item.optJSONArray("payments") ?: JSONArray()
                             if (history.length() > 0) {
