@@ -126,6 +126,7 @@ fun KeRiApp() {
     var showSchedule by remember { mutableStateOf(true) }
     var borrowerName by remember { mutableStateOf("") }
     var borrowerPhone by remember { mutableStateOf("") }
+    var disbursalDate by remember { mutableStateOf(SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date())) }
     var savedLoans by remember { mutableStateOf(loadLoans(context)) }
     var showBorrowers by remember { mutableStateOf(false) }
     var actionMessage by remember { mutableStateOf("") }
@@ -200,6 +201,10 @@ fun KeRiApp() {
                 if (s.length <= 16 && s.all { it.isDigit() || it == '+' || it == ' ' || it == '-' }) borrowerPhone = s
             }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Mobile number (optional)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), shape = RoundedCornerShape(12.dp))
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(value = disbursalDate, onValueChange = { disbursalDate = it.take(24) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Loan disbursal date (e.g. 09 Oct 2026)") },
+                shape = RoundedCornerShape(12.dp))
         }
 
         PremiumCard("Loan details", "Set the loan amount, rate and repayment period", Icons.Default.Calculate) {
@@ -297,6 +302,7 @@ fun KeRiApp() {
                         put("disbursal", summary.disbursal); put("totalEmi", summary.totalEmi)
                         put("totalCost", summary.totalCost)
                         put("date", SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
+                        put("disbursalDate", disbursalDate.trim())
                     }
                     val list = JSONArray()
                     for (i in 0 until savedLoans.length()) {
@@ -322,6 +328,7 @@ fun KeRiApp() {
                         put("emi", summary.emi); put("interest", summary.interest)
                         put("disbursal", summary.disbursal); put("totalEmi", summary.totalEmi)
                         put("totalCost", summary.totalCost); put("date", SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
+                        put("disbursalDate", disbursalDate.trim())
                     }
                     shareLoanPdf(context, data, summary)
                     actionMessage = "PDF share options opened."
@@ -413,6 +420,7 @@ fun KeRiApp() {
                         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                             Text(item.optString("name"), color = Ink, fontWeight = FontWeight.Bold)
                             Text("Loan: " + rupees(item.optDouble("loan")), color = Muted, fontSize = 12.sp)
+                            Text("Disbursal date: " + item.optString("disbursalDate", item.optString("date", "Not recorded")), color = Muted, fontSize = 12.sp)
                             val paidTotal = totalPaid(item)
                             val dueTotal = item.optDouble("totalEmi", item.optDouble("emi") * item.optInt("months", 1))
                             val remaining = (dueTotal - paidTotal).coerceAtLeast(0.0)
@@ -420,7 +428,7 @@ fun KeRiApp() {
                                 mutableStateOf(SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date()))
                             }
                             var paymentAmount by remember(item.optString("id")) {
-                                mutableStateOf(if (item.optDouble("emi") > 0) item.optDouble("emi").toString().trimEnd('0').trimEnd('.') else "0")
+                                mutableStateOf(kotlin.math.round(item.optDouble("emi")).toLong().toString())
                             }
                             Text("Scheduled EMI: " + rupees(item.optDouble("emi")) + " · " + item.optInt("months") + " months", color = Muted, fontSize = 12.sp)
                             Text("Total received: " + rupees(paidTotal), color = Green, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -456,7 +464,7 @@ fun KeRiApp() {
                                         saveLoans(context, next)
                                         savedLoans = next
                                         actionMessage = if ((dueTotal - totalPaid(updated)) <= 0.0) "Loan completed. Remaining balance is ₹0." else "Payment recorded for " + item.optString("name")
-                                        paymentAmount = item.optDouble("emi").toString().trimEnd('0').trimEnd('.')
+                                        paymentAmount = kotlin.math.round(item.optDouble("emi")).toLong().toString()
                                     }
                                 }, modifier = Modifier.fillMaxWidth()) { Text("Save Payment") }
                             }
@@ -478,6 +486,7 @@ fun KeRiApp() {
                                     processingText = item.optDouble("processing").toString()
                                     insuranceText = item.optDouble("insurance").toString()
                                     docsText = item.optDouble("documentation").toString()
+                                    disbursalDate = item.optString("disbursalDate", item.optString("date", SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date())))
                                     showBorrowers = false
                                     actionMessage = "Editing " + borrowerName + " — update details, then tap Save Loan."
                                 }) { Text("Edit") }
@@ -547,6 +556,7 @@ private fun shareLoanPdf(context: Context, data: JSONObject, summary: LoanSummar
     line("Borrower name", data.optString("name", "Not provided"))
     line("Mobile number", data.optString("phone").ifBlank { "Not provided" })
     line("Report date", data.optString("date"))
+    line("Loan disbursal date", data.optString("disbursalDate", data.optString("date", "Not recorded")))
     line("Loan amount", rupees(data.optDouble("loan")))
     line("Annual interest rate", data.optDouble("rate").toString() + "% p.a.")
     line("Duration", data.optInt("months").toString() + " months")
