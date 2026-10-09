@@ -1,6 +1,18 @@
 package com.keri.emi
 
 import android.os.Bundle
+import android.content.Context
+import android.content.Intent
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
+import androidx.core.content.FileProvider
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
@@ -110,6 +122,11 @@ fun KeRiApp() {
     var insuranceText by remember { mutableStateOf("4500") }
     var docsText by remember { mutableStateOf("1000") }
     var showSchedule by remember { mutableStateOf(true) }
+    var borrowerName by remember { mutableStateOf("") }
+    var borrowerPhone by remember { mutableStateOf("") }
+    var savedLoans by remember { mutableStateOf(loadLoans(this@MainActivity)) }
+    var showBorrowers by remember { mutableStateOf(false) }
+    var actionMessage by remember { mutableStateOf("") }
 
     val loan = amount(loanText, 500000.0).coerceIn(10000.0, 100000000.0)
     val rate = amount(rateText, 9.5).coerceIn(0.0, 36.0)
@@ -141,6 +158,17 @@ fun KeRiApp() {
                 Text(rupees(summary.emi), color = Color.White, fontSize = 35.sp, fontWeight = FontWeight.ExtraBold)
                 Text("for " + tenure + " months", color = Color(0xFFCFDAF2), fontSize = 12.sp)
             }
+        }
+
+        PremiumCard("Borrower details", "Who is this loan for?", Icons.Default.Payments) {
+            OutlinedTextField(value = borrowerName, onValueChange = { borrowerName = it.take(80) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Borrower name") },
+                placeholder = { Text("Enter full name") }, shape = RoundedCornerShape(12.dp))
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(value = borrowerPhone, onValueChange = { s ->
+                if (s.length <= 16 && s.all { it.isDigit() || it == '+' || it == ' ' || it == '-' }) borrowerPhone = s
+            }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Mobile number (optional)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), shape = RoundedCornerShape(12.dp))
         }
 
         PremiumCard("Loan details", "Set the loan amount, rate and repayment period", Icons.Default.Calculate) {
@@ -260,6 +288,96 @@ fun KeRiApp() {
             Text("Your numbers. Clear decisions.", color = Muted, fontSize = 10.sp)
         }
     }
+}
+
+private fun loadLoans(context: Context): JSONArray =
+    runCatching { JSONArray(context.getSharedPreferences("keri_loans", Context.MODE_PRIVATE).getString("records", "[]")) }
+        .getOrElse { JSONArray() }
+
+private fun saveLoans(context: Context, loans: JSONArray) {
+    context.getSharedPreferences("keri_loans", Context.MODE_PRIVATE).edit().putString("records", loans.toString()).apply()
+}
+
+private fun shareLoanPdf(context: Context, data: JSONObject, summary: LoanSummary) {
+    val doc = PdfDocument()
+    val page = doc.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
+    val canvas = page.canvas
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    var y = 48f
+    paint.color = android.graphics.Color.rgb(16, 43, 92)
+    paint.textSize = 23f
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    canvas.drawText("KeRi EMI Calculator", 40f, y, paint)
+    y += 24f
+    paint.textSize = 10f
+    paint.typeface = Typeface.DEFAULT
+    canvas.drawText("Complete Loan Summary | Developed by Shartendu", 40f, y, paint)
+    y += 30f
+    fun heading(s: String) {
+        paint.color = android.graphics.Color.rgb(40, 100, 232)
+        paint.textSize = 15f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText(s, 40f, y, paint)
+        y += 24f
+    }
+    fun line(label: String, value: String) {
+        paint.color = android.graphics.Color.DKGRAY
+        paint.textSize = 11f
+        paint.typeface = Typeface.DEFAULT
+        canvas.drawText(label, 42f, y, paint)
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText(value.take(43), 270f, y, paint)
+        y += 22f
+    }
+    heading("Borrower & Loan Details")
+    line("Borrower name", data.optString("name", "Not provided"))
+    line("Mobile number", data.optString("phone").ifBlank { "Not provided" })
+    line("Report date", data.optString("date"))
+    line("Loan amount", rupees(data.optDouble("loan")))
+    line("Annual interest rate", data.optDouble("rate").toString() + "% p.a.")
+    line("Duration", data.optInt("months").toString() + " months")
+    line("Monthly EMI", rupees(data.optDouble("emi")))
+    line("Total interest", rupees(data.optDouble("interest")))
+    line("Processing fee", rupees(data.optDouble("processing")))
+    line("Loan insurance", rupees(data.optDouble("insurance")))
+    line("Documentation & other fees", rupees(data.optDouble("documentation")))
+    line("Total extra charges", rupees(data.optDouble("fees")))
+    line("Estimated in-hand disbursal", rupees(data.optDouble("disbursal")))
+    line("Total EMI payments", rupees(data.optDouble("totalEmi", summary.totalEmi)))
+    line("Total loan cost incl. fees", rupees(data.optDouble("totalCost")))
+    heading("Yearly Payment Schedule")
+    paint.textSize = 9f
+    canvas.drawText("Year", 42f, y, paint)
+    canvas.drawText("Principal", 115f, y, paint)
+    canvas.drawText("Interest", 265f, y, paint)
+    canvas.drawText("Balance", 410f, y, paint)
+    y += 18f
+    summary.years.forEach { row ->
+        if (y < 790f) {
+            canvas.drawText("Y" + row.year, 42f, y, paint)
+            canvas.drawText(number(row.principal), 115f, y, paint)
+            canvas.drawText(number(row.interest), 265f, y, paint)
+            canvas.drawText(number(row.balance), 410f, y, paint)
+            y += 16f
+        }
+    }
+    paint.textSize = 9f
+    paint.color = android.graphics.Color.GRAY
+    canvas.drawText("Estimate only; actual lender terms and charges may vary.", 40f, 820f, paint)
+    doc.finishPage(page)
+    val safeName = data.optString("name", "Borrower").replace(Regex("[^A-Za-z0-9_-]"), "_").take(35)
+    val file = File(context.cacheDir, "KeRi_EMI_" + safeName + ".pdf")
+    FileOutputStream(file).use { doc.writeTo(it) }
+    doc.close()
+    val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "application/pdf"
+        putExtra(Intent.EXTRA_SUBJECT, "KeRi EMI Loan Summary - " + data.optString("name"))
+        putExtra(Intent.EXTRA_TEXT, "Loan summary for " + data.optString("name") + " | KeRi EMI Calculator")
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Share loan PDF"))
 }
 
 @Composable
