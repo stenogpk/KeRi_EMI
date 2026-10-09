@@ -425,6 +425,8 @@ fun KeRiApp() {
                             Text("Scheduled EMI: " + rupees(item.optDouble("emi")) + " · " + item.optInt("months") + " months", color = Muted, fontSize = 12.sp)
                             Text("Total received: " + rupees(paidTotal), color = Green, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             Text("Remaining: " + rupees(remaining) + if (remaining <= 0.0) " · LOAN COMPLETE" else " · ACTIVE", color = if (remaining <= 0.0) Green else Blue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("EMIs remaining: " + if (remaining <= 0.0) "0" else (item.optInt("months", 1) - (item.optJSONArray("payments")?.length() ?: 0)).coerceAtLeast(0).toString(),
+                                color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             if (item.optString("phone").isNotBlank()) Text(item.optString("phone"), color = Muted, fontSize = 12.sp)
                             if (remaining > 0.0) {
                                 Spacer(Modifier.height(8.dp))
@@ -560,8 +562,11 @@ private fun shareLoanPdf(context: Context, data: JSONObject, summary: LoanSummar
     val receivedTotal = totalPaid(data)
     val scheduledTotal = data.optDouble("totalEmi", data.optDouble("emi") * data.optInt("months", 1))
     line("Total payments received", rupees(receivedTotal))
-    line("Remaining amount", rupees((scheduledTotal - receivedTotal).coerceAtLeast(0.0)))
-    line("Loan status", if (scheduledTotal - receivedTotal <= 0.0) "COMPLETE - NIL BALANCE" else "ACTIVE")
+    val remainingAmount = (scheduledTotal - receivedTotal).coerceAtLeast(0.0)
+    line("Remaining amount", rupees(remainingAmount))
+    val paymentCount = data.optJSONArray("payments")?.length() ?: 0
+    line("EMIs remaining", if (remainingAmount <= 0.0) "0" else (data.optInt("months", 1) - paymentCount).coerceAtLeast(0).toString())
+    line("Loan status", if (remainingAmount <= 0.0) "COMPLETE - NIL BALANCE" else "ACTIVE")
     val paymentHistory = data.optJSONArray("payments") ?: JSONArray()
     if (paymentHistory.length() > 0) {
         heading("Payment History")
