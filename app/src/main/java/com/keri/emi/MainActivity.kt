@@ -3,6 +3,16 @@ package com.keri.emi
 import android.os.Bundle
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import java.io.ByteArrayOutputStream
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
@@ -137,12 +147,28 @@ fun KeRiApp() {
     var paymentDialogDate by remember { mutableStateOf(SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date())) }
     var paymentDialogAmount by remember { mutableStateOf("") }
     var showPinSettings by remember { mutableStateOf(false) }
+    var showPinGate by remember { mutableStateOf(false) }
+    var showBackupPassword by remember { mutableStateOf(false) }
+    var backupPassword by remember { mutableStateOf("") }
+    var backupMode by remember { mutableStateOf("backup") }
     var pinEntry by remember { mutableStateOf("") }
     var pinConfirm by remember { mutableStateOf("") }
     var unlockEntry by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf("") }
     var isUnlocked by remember { mutableStateOf(context.getSharedPreferences("keri_security", Context.MODE_PRIVATE).getString("pin", null) == null) }
     val storedPin = context.getSharedPreferences("keri_security", Context.MODE_PRIVATE).getString("pin", null)
+    val createBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) runCatching { writeEncryptedBackup(context, uri, savedLoans, backupPassword) }
+            .onSuccess { actionMessage = "Encrypted backup saved successfully." }
+            .onFailure { actionMessage = "Backup failed: " + (it.message ?: "Unable to write file") }
+        backupPassword = ""; showBackupPassword = false
+    }
+    val openBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) runCatching { readEncryptedBackup(context, uri, backupPassword) }
+            .onSuccess { restored -> saveLoans(context, restored); savedLoans = restored; actionMessage = "Encrypted backup restored successfully." }
+            .onFailure { actionMessage = "Restore failed. Wrong password or invalid backup; existing data was not changed." }
+        backupPassword = ""; showBackupPassword = false
+    }
 
     val loan = amount(loanText, 500000.0).coerceIn(10000.0, 100000000.0)
     val rate = amount(rateText, 9.5).coerceIn(0.0, 36.0)
@@ -181,10 +207,7 @@ fun KeRiApp() {
                     Text("Complete Loan & Extra Charges Estimator", color = Muted, fontSize = 11.sp)
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { showPinSettings = true }) { Text("App Lock / PIN") }
-            }
-            Spacer(Modifier.height(18.dp))
+             Spacer(Modifier.height(18.dp))
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Navy).padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -319,9 +342,14 @@ fun KeRiApp() {
                     editIndex = -1
                 }
             }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Save Loan") }
-            OutlinedButton(onClick = { showBorrowers = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Borrower List (" + savedLoans.length() + ")")
+            OutlinedButton(onClick = {
+                if (storedPin == null) { showPinSettings = true; showPinGate = true; pinEntry = ""; pinConfirm = "" }
+                else { showPinGate = true; unlockEntry = ""; pinError = "" }
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text("Borrower List (" + savedLoans.length() + ") · PIN protected")
             }
+            OutlinedButton(onClick = { backupMode = "backup"; backupPassword = ""; showBackupPassword = true }, modifier = Modifier.fillMaxWidth()) { Text("Create Encrypted Backup") }
+            OutlinedButton(onClick = { backupMode = "restore"; backupPassword = ""; showBackupPassword = true }, modifier = Modifier.fillMaxWidth()) { Text("Restore Encrypted Backup") }
             Button(onClick = {
                 if (borrowerName.isBlank()) actionMessage = "Enter borrower name to create the PDF."
                 else {
@@ -452,6 +480,19 @@ fun KeRiApp() {
             dismissButton = { TextButton(onClick = { showPaymentDialog = false }) { Text("Cancel") } }
         )
     }
+    if (showPinGate && storedPin != null) {
+        AlertDialog(onDismissRequest = { showPinGate = false }, title = { Text("Unlock Borrower List") },
+            text = { Column { OutlinedTextField(value = unlockEntry, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) unlockEntry = it }, label = { Text("4-digit PIN") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)); if (pinError.isNotBlank()) Text(pinError, color = Color.Red) } },
+            confirmButton = { TextButton(onClick = { if (unlockEntry == storedPin) { showBorrowers = true; showPinGate = false; unlockEntry = ""; pinError = "" } else pinError = "Incorrect PIN" }) { Text("Unlock") } },
+            dismissButton = { TextButton(onClick = { showPinGate = false }) { Text("Cancel") } })
+    }
+    if (showBackupPassword) {
+        AlertDialog(onDismissRequest = { showBackupPassword = false; backupPassword = "" },
+            title = { Text(if (backupMode == "backup") "Create Encrypted Backup" else "Restore Encrypted Backup") },
+            text = { Column { Text("Use a strong password of at least 8 characters. You will need the same password to restore this backup."); OutlinedTextField(value = backupPassword, onValueChange = { backupPassword = it.take(128) }, label = { Text("Backup password") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)) } },
+            confirmButton = { TextButton(onClick = { if (backupPassword.length < 8) actionMessage = "Backup password must be at least 8 characters." else if (backupMode == "backup") createBackup.launch("KeRi_EMI_Encrypted_Backup.keb") else openBackup.launch(arrayOf("application/octet-stream", "application/json", "*/*")) }) { Text(if (backupMode == "backup") "Choose Save Location" else "Choose Backup File") } },
+            dismissButton = { TextButton(onClick = { showBackupPassword = false; backupPassword = "" }) { Text("Cancel") } })
+    }
     if (showBorrowers) {
         AlertDialog(
             onDismissRequest = { showBorrowers = false },
@@ -523,9 +564,44 @@ fun KeRiApp() {
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showBorrowers = false }) { Text("Close") } }
+            confirmButton = { Row { TextButton(onClick = { showBorrowers = false; showPinSettings = true; pinEntry = ""; pinConfirm = "" }) { Text("Change PIN") }; TextButton(onClick = { showBorrowers = false }) { Text("Close") } } }
         )
     }
+}
+
+
+private fun deriveBackupKey(password: String, salt: ByteArray): SecretKeySpec {
+    val spec = PBEKeySpec(password.toCharArray(), salt, 210000, 256)
+    val bytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+    spec.clearPassword()
+    return SecretKeySpec(bytes, "AES")
+}
+
+private fun writeEncryptedBackup(context: Context, uri: Uri, loans: JSONArray, password: String) {
+    val random = SecureRandom()
+    val salt = ByteArray(16).also { random.nextBytes(it) }
+    val iv = ByteArray(12).also { random.nextBytes(it) }
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.ENCRYPT_MODE, deriveBackupKey(password, salt), GCMParameterSpec(128, iv))
+    val encrypted = cipher.doFinal(loans.toString().toByteArray(Charsets.UTF_8))
+    val output = ByteArrayOutputStream()
+    output.write("KERIENC1".toByteArray(Charsets.US_ASCII))
+    output.write(salt); output.write(iv); output.write(encrypted)
+    context.contentResolver.openOutputStream(uri, "wt")!!.use { it.write(output.toByteArray()) }
+}
+
+private fun readEncryptedBackup(context: Context, uri: Uri, password: String): JSONArray {
+    val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+    require(bytes.size > 36) { "Invalid backup file" }
+    require(String(bytes, 0, 8, Charsets.US_ASCII) == "KERIENC1") { "Not a KeRi encrypted backup" }
+    val salt = bytes.copyOfRange(8, 24)
+    val iv = bytes.copyOfRange(24, 36)
+    val encrypted = bytes.copyOfRange(36, bytes.size)
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.DECRYPT_MODE, deriveBackupKey(password, salt), GCMParameterSpec(128, iv))
+    val json = JSONArray(String(cipher.doFinal(encrypted), Charsets.UTF_8))
+    for (i in 0 until json.length()) require(json.optJSONObject(i) != null) { "Invalid borrower record" }
+    return json
 }
 
 private fun loadLoans(context: Context): JSONArray =
