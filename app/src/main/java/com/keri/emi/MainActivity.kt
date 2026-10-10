@@ -393,9 +393,11 @@ fun KeRiApp() {
                 Column {
                     OutlinedTextField(value = pinEntry, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) pinEntry = it },
                         label = { Text("New 4-digit PIN") }, singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
                     OutlinedTextField(value = pinConfirm, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) pinConfirm = it },
                         label = { Text("Confirm PIN") }, singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
                     if (pinError.isNotBlank()) Text(pinError, color = Color.Red)
                 }
@@ -465,7 +467,7 @@ fun KeRiApp() {
     }
     if (showPinGate && storedPin != null) {
         AlertDialog(onDismissRequest = { showPinGate = false }, title = { Text("Unlock Borrower List") },
-            text = { Column { OutlinedTextField(value = unlockEntry, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) unlockEntry = it }, label = { Text("4-digit PIN") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)); if (pinError.isNotBlank()) Text(pinError, color = Color.Red) } },
+            text = { Column { OutlinedTextField(value = unlockEntry, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) unlockEntry = it }, label = { Text("4-digit PIN") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)); if (pinError.isNotBlank()) Text(pinError, color = Color.Red) } },
             confirmButton = { TextButton(onClick = { if (unlockEntry == storedPin) { showBorrowers = true; showPinGate = false; unlockEntry = ""; pinError = "" } else pinError = "Incorrect PIN" }) { Text("Unlock") } },
             dismissButton = { TextButton(onClick = { showPinGate = false }) { Text("Cancel") } })
     }
