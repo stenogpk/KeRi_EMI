@@ -155,7 +155,7 @@ fun KeRiApp() {
     var pinConfirm by remember { mutableStateOf("") }
     var unlockEntry by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf("") }
-    var isUnlocked by remember { mutableStateOf(context.getSharedPreferences("keri_security", Context.MODE_PRIVATE).getString("pin", null) == null) }
+    var isUnlocked by remember { mutableStateOf(true) }
     val storedPin = context.getSharedPreferences("keri_security", Context.MODE_PRIVATE).getString("pin", null)
     val createBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) runCatching { writeEncryptedBackup(context, uri, savedLoans, backupPassword) }
@@ -175,23 +175,6 @@ fun KeRiApp() {
     val fees = amount(processingText, 0.0) + amount(insuranceText, 0.0) + amount(docsText, 0.0)
     val summary = remember(loan, rate, tenure, fees) { calculateLoan(loan, rate, tenure, fees) }
 
-    if (!isUnlocked) {
-        Column(Modifier.fillMaxSize().background(Soft).statusBarsPadding().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("KeRi EMI Calculator", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Navy)
-            Spacer(Modifier.height(18.dp))
-            Text("Enter your 4-digit app PIN", color = Muted)
-            OutlinedTextField(value = unlockEntry, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) unlockEntry = it },
-                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                label = { Text("4-digit PIN") })
-            if (pinError.isNotBlank()) Text(pinError, color = Color.Red)
-            Button(onClick = {
-                if (unlockEntry == storedPin) { isUnlocked = true; unlockEntry = ""; pinError = "" }
-                else pinError = "Incorrect PIN"
-            }) { Text("Unlock") }
-        }
-        return
-    }
     Column(
         Modifier.fillMaxSize().background(Soft).statusBarsPadding().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -405,7 +388,7 @@ fun KeRiApp() {
     }
     if (showPinSettings) {
         AlertDialog(onDismissRequest = { showPinSettings = false; pinEntry = ""; pinConfirm = "" },
-            title = { Text(if (storedPin == null) "Set 4-digit App PIN" else "Change App PIN") },
+            title = { Text(if (storedPin == null) "Set 4-digit Borrower List PIN" else "Change Borrower List PIN") },
             text = {
                 Column {
                     OutlinedTextField(value = pinEntry, onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) pinEntry = it },
@@ -423,7 +406,7 @@ fun KeRiApp() {
                 else {
                     context.getSharedPreferences("keri_security", Context.MODE_PRIVATE).edit().putString("pin", pinEntry).apply()
                     pinError = ""; pinEntry = ""; pinConfirm = ""; showPinSettings = false
-                    actionMessage = "App PIN saved."
+                    actionMessage = "Borrower List PIN saved."
                 }
             }) { Text("Save PIN") } },
             dismissButton = { TextButton(onClick = { showPinSettings = false; pinEntry = ""; pinConfirm = ""; pinError = "" }) { Text("Cancel") } }
